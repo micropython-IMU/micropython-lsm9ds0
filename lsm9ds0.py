@@ -110,10 +110,17 @@ def twos_comp(val, bits=8):
 
 
 class LSM9DS0():
-	def __init__(self, i2c, g_sens=None, a_sens=None, m_sens=None, g_addr=0x6B, xm_addr=0x1D):
+	def __init__(self, i2c=None, spi=None, g_sens=None, a_sens=None, m_sens=None, g_addr=0x6B, xm_addr=0x1D):
+		if not (i2c or spi):
+			raise Exception("must have an i2c or spi object")
+		
 		self.i2c = i2c
+		self.spi = spi
 		self.g_addr = g_addr
 		self.xm_addr = xm_addr
+		if self.spi:
+			self.g_addr.high()
+			self.xm_addr.high()
 		
 		# init gyro
 		self.write_reg(G, CTRL_REG1_G, 0b00001111)
@@ -145,18 +152,36 @@ class LSM9DS0():
 	
 	def read_reg(self, slave, reg, data=1):
 		n_bytes = data if type(data) == int else len(data)
-		return self.i2c.mem_read(
-			data = data,
-			addr = self.g_addr if not slave else self.xm_addr,
-			memaddr = reg | 0x80 if n_bytes > 1 else reg,
-		)
+		
+		if self.i2c:
+			return self.i2c.mem_read(
+				data = data,
+				addr = self.g_addr if not slave else self.xm_addr,
+				memaddr = reg | 0x80 if n_bytes > 1 else reg,
+			)
+		elif self.spi:
+			pin = self.g_addr if not slave else self.xm_addr
+			pin.low()
+			if n_bytes > 1:
+				self.spi.send(0xC0 | reg)
+			else:
+				self.spi.send(0x80 | reg)
+			r = self.spi.recv(data)
+			pin.high()
+			return r
 	
 	def write_reg(self, slave, reg, data=0):
-		self.i2c.mem_write(
-			data = data,
-			addr = self.g_addr if not slave else self.xm_addr,
-			memaddr = reg,
-		)
+		if self.i2c:
+			self.i2c.mem_write(
+				data = data,
+				addr = self.g_addr if not slave else self.xm_addr,
+				memaddr = reg,
+			)
+		elif self.spi:
+			pin = self.g_addr if not slave else self.xm_addr
+			pin.low()
+			self.spi.send(bytes([reg, data]))
+			pin.high()
 	
 	def update_reg(self, slave, reg, value, mask):
 		reg_val = self.read_reg(slave, reg)[0]
@@ -243,10 +268,29 @@ class LSM9DS0():
 if __name__ == "__main__":
 	import pyb
 	
-	i2c = pyb.I2C(2, mode=pyb.I2C.MASTER, baudrate=100000)
+	## SPI mode:
+	## physical connections (pyb - LSM9DS0):
+	## Y12     - CSG
+	## Y11     - CSXM
+	## MOSI(1) - SDA
+	## MISO(1) - SDOG and SDOXM
+	## SCK(1)  - SCL
+	#spi = pyb.SPI(1, mode=pyb.SPI.MASTER, baudrate=328125)
+	#spi_g = pyb.Pin('Y12', pyb.Pin.OUT_PP)
+	#spi_xm = pyb.Pin('Y11', pyb.Pin.OUT_PP)
+	#lsm9ds0 = LSM9DS0(spi=spi, g_addr=spi_g, xm_addr=spi_xm, g_sens=500, a_sens=4, m_sens=12)
 	
-	lsm9ds0 = LSM9DS0(i2c, g_sens=500, a_sens=4, m_sens=12)
-	#g_id, xm_id = lsm9ds0.who_am_i()
+	# I2C mode:
+	# physical connections (pyb - LSM9DS0):
+	# SDA(2) - SDA
+	# SCL(2) - SCL
+	i2c = pyb.I2C(2, mode=pyb.I2C.MASTER, baudrate=100000)
+	lsm9ds0 = LSM9DS0(i2c=i2c, g_sens=500, a_sens=4, m_sens=12)
+	
+	g_id, xm_id = lsm9ds0.who_am_i()
+	print((g_id, xm_id)) # (b'\xd4', b'I')
+	
+	pyb.delay(1000)
 	
 	lsm9ds0.accel.set_sens(16)
 	
