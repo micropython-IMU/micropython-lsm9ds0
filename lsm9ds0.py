@@ -109,12 +109,32 @@ def twos_comp(val, bits=8):
 	return val
 
 
+class i2c_adapter:
+    """This library was written based on an older pyb.I2C interface.
+    To make it compatible with the new machine.I2C interface, this
+    adapter is provided. -Alden
+    """
+    def __init__(self, i2c):
+        self.i2c = i2c
+        
+    def mem_write(self, data, addr, memaddr):
+        self.i2c.writeto_mem(addr, memaddr, bytes([data]))
+        
+    def mem_read(self, data, addr, memaddr):
+        return self.i2c.readfrom_mem(addr, memaddr, data)
+    
+    def ensure_compatibility(i2c):
+        if i2c is None or hasattr(i2c, 'mem_write'):
+            return i2c
+        return i2c_adapter(i2c)
+        
+
 class LSM9DS0():
 	def __init__(self, i2c=None, spi=None, g_sens=None, a_sens=None, m_sens=None, g_addr=0x6B, xm_addr=0x1D):
 		if not (i2c or spi):
 			raise Exception("must have an i2c or spi object")
 		
-		self.i2c = i2c
+		self.i2c = i2c_adapter.ensure_compatibility(i2c)
 		self.spi = spi
 		self.g_addr = g_addr
 		self.xm_addr = xm_addr
